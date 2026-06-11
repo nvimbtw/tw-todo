@@ -9,21 +9,25 @@ local channel_toml = [==[
 name = "tw-todo"
 description = "tw-todo: pending taskwarrior tasks for this project"
 
+# The script is POSIX, but television runs commands through $SHELL (which may
+# be nushell/fish), so it is wrapped in an explicit `sh -c`.
 [source]
-command = '''p=$(d=$PWD; while [ "$d" != "/" ]; do for m in .tw-todo .git; do [ -e "$d/$m" ] && { echo "$d"; break 2; }; done; d=$(dirname "$d"); done); p=$(basename "${p:-$PWD}"); task rc.confirmation=off rc.verbose=nothing rc.uda.twhash.type=string rc.uda.twfile.type=string rc.uda.twissue.type=numeric rc.report.twtodo.columns=urgency,twhash,twfile,description.desc rc.report.twtodo.labels=,,, rc.report.twtodo.sort=urgency- "project:$p" status:pending twtodo 2>/dev/null'''
+command = '''sh -c 'p=$(d=$PWD; while [ "$d" != "/" ]; do for m in .tw-todo .git; do if [ -e "$d/$m" ]; then echo "$d"; break 2; fi; done; d=$(dirname "$d"); done); p=$(basename "${p:-$PWD}"); task rc.confirmation=off rc.verbose=nothing rc.uda.twhash.type=string rc.uda.twfile.type=string rc.uda.twissue.type=numeric rc.report.twtodo.columns=urgency,twhash,twfile,description.desc rc.report.twtodo.labels=,,, rc.report.twtodo.sort=urgency- "project:$p" status:pending twtodo 2>/dev/null' '''
 
 [preview]
 command = '''sh -c 'set -- {}; grep -n -B 3 -A 10 -- "$2" "$3"' '''
 ]==]
 
---- Write the television cable channel definition if it doesn't exist yet.
+--- Write the television cable channel definition, refreshing it whenever the
+--- bundled template changes (the file is fully owned by tw-todo).
 function M.ensure_channel()
     local path = vim.fs.joinpath(vim.fn.expand("~/.config/television/cable"), "tw-todo.toml")
-    if vim.uv.fs_stat(path) then
+    local current = vim.uv.fs_stat(path) and table.concat(vim.fn.readfile(path), "\n") or nil
+    if current == vim.trim(channel_toml) then
         return
     end
     vim.fn.mkdir(vim.fs.dirname(path), "p")
-    vim.fn.writefile(vim.split(channel_toml, "\n"), path)
+    vim.fn.writefile(vim.split(vim.trim(channel_toml), "\n"), path)
     vim.notify("tw-todo: installed television channel at " .. path, vim.log.levels.INFO)
 end
 

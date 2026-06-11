@@ -1,5 +1,3 @@
--- TODO: test
--- tw:ab0419c
 local M = {}
 
 function M.setup(opts)

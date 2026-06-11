@@ -21,30 +21,60 @@ local overrides = {
     "rc.uda.twissue.label=tw-todo issue",
 }
 
-local function run(args, on_done)
-    local opts = options()
-    local cmd = { opts.command }
-    vim.list_extend(cmd, overrides)
-    vim.list_extend(cmd, args)
+-- Taskwarrior 3's sqlite backend fails fast when two `task` processes touch
+-- the database at once, so plugin commands run one at a time through a queue,
+-- and a locked database (e.g. rofi mid-action) is retried with backoff.
+local pending = {}
+local busy = false
 
-    local ok, err = pcall(vim.system, cmd, { text = true }, function(out)
-        vim.schedule(function()
-            if out.code ~= 0 then
+local function next_job()
+    local job = table.remove(pending, 1)
+    busy = job ~= nil
+    if job then
+        job()
+    end
+end
+
+local function run(args, on_done)
+    table.insert(pending, function()
+        local opts = options()
+        local cmd = { opts.command }
+        vim.list_extend(cmd, overrides)
+        vim.list_extend(cmd, args)
+
+        local attempts = 0
+        local function exec()
+            local ok, err = pcall(vim.system, cmd, { text = true }, function(out)
+                vim.schedule(function()
+                    if out.code ~= 0 and (out.stderr or ""):find("database is locked") and attempts < 5 then
+                        attempts = attempts + 1
+                        vim.defer_fn(exec, 150 * attempts)
+                        return
+                    end
+                    if out.code ~= 0 then
+                        vim.notify(
+                            ("tw-todo: `%s` failed (exit %d): %s")
+                                :format(table.concat(cmd, " "), out.code, vim.trim(out.stderr or "")),
+                            vim.log.levels.ERROR
+                        )
+                    elseif on_done then
+                        pcall(on_done, out) -- a failing callback must not wedge the queue
+                    end
+                    next_job()
+                end)
+            end)
+            if not ok then
                 vim.notify(
-                    ("tw-todo: `%s` failed (exit %d): %s")
-                        :format(table.concat(cmd, " "), out.code, vim.trim(out.stderr or "")),
+                    ("tw-todo: could not run %s: %s"):format(opts.command, err),
                     vim.log.levels.ERROR
                 )
-            elseif on_done then
-                on_done(out)
+                next_job()
             end
-        end)
+        end
+        exec()
     end)
-    if not ok then
-        vim.notify(
-            ("tw-todo: could not run %s: %s"):format(opts.command, err),
-            vim.log.levels.ERROR
-        )
+    if not busy then
+        next_job()
     end
 end
 

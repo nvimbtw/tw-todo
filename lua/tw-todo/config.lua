@@ -25,6 +25,8 @@ M.defaults = {
     github = {
         enabled = false, -- mirror comments as GitHub issues via the gh CLI (push-only)
         command = "gh",
+        labels = true, -- label issues with the keyword (todo/fix) and your +tags; labels must exist in the repo
+        extra_args = {}, -- passed to `gh issue create`, e.g. { "--assignee", "@me", "--milestone", "v1.0" }
     },
 }
 
