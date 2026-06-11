@@ -1,6 +1,6 @@
--- TODO: Create auto commits after closing an issue
--- tw:   5e9c534
 local M = {}
+
+-- This is a change
 
 function M.setup(opts)
     local config = require("tw-todo.config").apply(opts)
