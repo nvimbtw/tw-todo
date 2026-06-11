@@ -5,6 +5,8 @@ M.defaults = {
         todo = "<leader>tt",
         fix = "<leader>tf",
         list = "<leader>tl",
+        hover = "<leader>ti",
+        develop = "<leader>tb",
     },
     hash_prefix = "tw:", -- prefix on the hash line under the comment
     taskwarrior = {
@@ -19,7 +21,8 @@ M.defaults = {
         on_write = true, -- reconcile comments with taskwarrior after saving a file (async)
     },
     virtual_text = {
-        enabled = true, -- show task status/urgency/due next to hash lines
+        enabled = true, -- show a small status/severity indicator next to hash lines
+        soon_days = 3, -- due within this many days renders as TwTodoDue (warn)
         format = nil, -- fun(task: table|nil): [string, string][] -- override the chunks
     },
     github = {
@@ -27,6 +30,9 @@ M.defaults = {
         command = "gh",
         labels = true, -- label issues with the keyword (todo/fix) and your +tags; labels must exist in the repo
         extra_args = {}, -- passed to `gh issue create`, e.g. { "--assignee", "@me", "--milestone", "v1.0" }
+        develop = {
+            start_task = true, -- `task start` the task after checking out its develop branch
+        },
     },
 }
 

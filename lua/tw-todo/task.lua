@@ -156,6 +156,37 @@ function M.reactivate(uuid, on_done)
     run({ uuid, "modify", "status:pending" }, on_done)
 end
 
+--- Apply metadata edits from the comment's due:/tags: lines.
+--- `due = false` clears the date; absent fields are left untouched.
+---@param uuid string
+---@param changes { due?: string|false, add?: string[], remove?: string[] }
+---@param on_done? fun(out: vim.SystemCompleted)
+function M.set_meta(uuid, changes, on_done)
+    local args = { uuid, "modify" }
+    if changes.due == false then
+        table.insert(args, "due:")
+    elseif changes.due then
+        table.insert(args, "due:" .. changes.due)
+    end
+    for _, tag in ipairs(changes.add or {}) do
+        table.insert(args, "+" .. tag)
+    end
+    for _, tag in ipairs(changes.remove or {}) do
+        table.insert(args, "-" .. tag)
+    end
+    if #args == 2 then
+        return
+    end
+    run(args, on_done)
+end
+
+--- Start time tracking on a task (e.g. when a develop branch is created).
+---@param uuid string
+---@param on_done? fun(out: vim.SystemCompleted)
+function M.start(uuid, on_done)
+    run({ uuid, "start" }, on_done)
+end
+
 --- Store the GitHub issue number mirrored from a comment.
 ---@param uuid string
 ---@param issue integer

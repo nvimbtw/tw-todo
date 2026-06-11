@@ -5,12 +5,19 @@ Structured TODO/FIX comments that live in your code and stay in lockstep with
 
 Hitting a keybind opens a floating input; the description you type is inserted
 above the cursor line as a comment, using the buffer's `commentstring`, together
-with a unique hash linking the comment to a taskwarrior task:
+with a unique hash linking the comment to a taskwarrior task. Due date and tags
+are part of the comment block (visible to anyone — or any agent — reading the
+file); everything else lives in taskwarrior and shows up in the hover:
 
 ```lua
 -- TODO: fix the race in scheduler
--- tw:a3f9c12
+-- tw:   a3f9c12
+-- due:  2026-06-20
+-- tags: +urgent +concurrency
 ```
+
+The `due:`/`tags:` lines only appear when set, and editing them syncs back to
+taskwarrior (and GitHub labels) on save — see [Sync](#sync).
 
 ## Setup
 
@@ -20,6 +27,8 @@ require("tw-todo").setup({
         todo = "<leader>tt", -- set any of these to false to disable the mapping
         fix = "<leader>tf",
         list = "<leader>tl", -- task picker
+        hover = "<leader>ti", -- float with full task details for the comment under the cursor
+        develop = "<leader>tb", -- create + checkout the gh develop branch for the comment's issue
     },
     hash_prefix = "tw:", -- prefix on the hash line
     taskwarrior = {
@@ -36,7 +45,8 @@ require("tw-todo").setup({
         on_write = true, -- reconcile comments with taskwarrior after saving a file (async)
     },
     virtual_text = {
-        enabled = true, -- show task status/urgency/due next to hash lines
+        enabled = true, -- show a small severity indicator next to hash lines
+        soon_days = 3, -- due within this many days renders as a warning
         format = nil, -- fun(task|nil): chunks — override the rendering
     },
     github = {
@@ -44,6 +54,9 @@ require("tw-todo").setup({
         command = "gh",
         labels = true, -- label issues with the keyword (todo/fix) and your +tags
         extra_args = {}, -- passed to `gh issue create`, e.g. { "--assignee", "@me", "--milestone", "v1.0" }
+        develop = {
+            start_task = true, -- `task start` the task after checking out its develop branch
+        },
     },
 })
 ```
@@ -63,8 +76,10 @@ fix the race in scheduler due:friday priority:H +concurrency
 ```
 
 (Recognized: `+tag` and `due: priority: project: scheduled: until: wait:
-recur: depends:`. Note: these extras are restored from taskwarrior, not the
-comment, so they are lost if the task is purged and recreated.)
+recur: depends:`.) `due:` and `+tags` are also written into the comment block —
+fuzzy dates like `due:friday` are rewritten to the resolved date once the task
+lands. The other attributes live only in taskwarrior (visible in the hover) and
+are lost if the task is purged and recreated.
 
 ## Sync
 
@@ -78,6 +93,13 @@ reconciled with taskwarrior:
 | comment exists | purged / missing | task recreated from the comment text |
 | comment removed | pending | marked `done` |
 | comment moved to another file | pending | `twfile` updated |
+| `due:`/`tags:` lines edited | pending | task (and issue labels) updated |
+
+For metadata the comment wins too: deleting the `due:` line clears the task's
+due date, and the `tags:` line is the full set of user tags (the keyword tag is
+kept implicitly). A comment without a `tags:` line expresses no opinion, so
+tags added via the CLI to old-style comments survive. After a metadata edit the
+buffer's block is rewritten in canonical form (resolved dates, padded keys).
 
 ## Picker
 
@@ -90,14 +112,24 @@ definition is auto-installed to `~/.config/television/cable/tw-todo.toml` on
 first use, and also works standalone: `tv tw-todo` from a project directory).
 Without tv.nvim it falls back to `vim.ui.select`.
 
+## Hover
+
+`:TwHover` (default `<leader>ti`) on any line of a comment block opens a float
+with everything that is not in the comment: status, urgency, priority, project,
+tags, all dates (due/scheduled/wait/until/recur), tracking state, annotations,
+and the mirrored GitHub issue number. Invoke it twice to focus the float
+(standard `K` behavior).
+
 ## Virtual text
 
-Each hash line shows its task's live state after reads, saves, and inserts:
-`● 8.2` (urgency, `TwTodoPending`), `due 2026-07-01` (`TwTodoDue`),
-`▶ tracking` when the task is active (`TwTodoActive`), the status for
-non-pending tasks, or `untracked` (`TwTodoUntracked`) for hashes taskwarrior
-doesn't know. Override the highlight groups or pass `virtual_text.format` to
-change the rendering.
+Each hash line shows a small severity indicator after reads, saves, and
+inserts: `● 8.2` (urgency) colored `TwTodoPending` (info) normally,
+`TwTodoDue` (warn) when due within `soon_days`, `TwTodoOverdue` (error) when
+overdue; `▶` prepended while the task is active (`TwTodoActive`); the status
+word for non-pending tasks or `untracked` (`TwTodoUntracked`) for hashes
+taskwarrior doesn't know. Due dates and tags are shown in the comment itself,
+the rest in the hover. Override the highlight groups or pass
+`virtual_text.format` to change the rendering.
 
 ## GitHub issues
 
@@ -115,9 +147,24 @@ never pulled — taskwarrior remains the local hub. (For pulling issues *into*
 taskwarrior, see [bugwarrior](https://github.com/GothenburgBitFactory/bugwarrior);
 it cannot create or close GitHub issues, which is why this uses `gh`.)
 
+Editing a comment's `tags:` line also updates the issue's labels on save
+(`gh issue edit --add-label/--remove-label`, skipped with a warning for labels
+missing from the repo).
+
+### Develop branches
+
+`:TwDevelop` (default `<leader>tb`) on a comment block creates the
+issue-linked branch via `gh issue develop --checkout` and switches to it,
+after a confirmation prompt showing the exact branch name
+(`<issue>-<description-slug>`, gh's own convention). With
+`develop.start_task = true` the taskwarrior task is `start`ed so the virtual
+text shows `▶`. Nothing is ever committed or pushed by the plugin — gh only
+registers the linked branch ref.
+
 ## Commands
 
-`:TwTodo`, `:TwFix`, `:TwList`, `:TwSync` — all work without `setup()`.
+`:TwTodo`, `:TwFix`, `:TwList`, `:TwSync`, `:TwHover`, `:TwDevelop` — all work
+without `setup()`.
 
 ## Roadmap
 
@@ -129,3 +176,7 @@ it cannot create or close GitHub issues, which is why this uses `gh`.)
 - [x] Virtual text with live task state
 - [x] Rich input (due dates, priorities, tags)
 - [x] GitHub issue mirroring (gh CLI, push-only)
+- [x] Due/tags as comment lines, two-way synced to taskwarrior and issue labels
+- [x] Hover float with full task details
+- [x] `gh issue develop` branches from a comment (confirmed, checkout, `task start`)
+- [ ] Explicit complete action (`:TwDone`) + optional auto-commit (commit-only, no push)

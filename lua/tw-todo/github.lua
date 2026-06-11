@@ -138,6 +138,81 @@ function M.close(root, issue)
     end)
 end
 
+--- Mirror a comment's tags-line edit onto the issue's labels.
+---@param root string
+---@param issue integer
+---@param add string[]
+---@param remove string[]
+function M.edit_labels(root, issue, add, remove)
+    if not options().labels then
+        return
+    end
+    local args = { "issue", "edit", tostring(issue) }
+    for _, label in ipairs(add) do
+        vim.list_extend(args, { "--add-label", label })
+    end
+    for _, label in ipairs(remove) do
+        vim.list_extend(args, { "--remove-label", label })
+    end
+    -- like create: labels missing from the repo are not worth an error
+    gh(root, args, nil, function(out)
+        vim.notify(
+            ("tw-todo: issue #%d label update skipped: %s"):format(issue, vim.trim(out.stderr or "")),
+            vim.log.levels.WARN
+        )
+    end)
+end
+
+--- Create and check out the issue-linked branch for a task, after an explicit
+--- confirmation. The branch name is computed locally (gh's `<issue>-<slug>`
+--- convention) so the prompt shows exactly what will be created. No commits
+--- are ever pushed.
+---@param t table exported task (needs twissue, description, uuid)
+---@param buf? integer
+function M.develop(t, buf)
+    if not t.twissue then
+        vim.notify("tw-todo: no GitHub issue linked to this comment", vim.log.levels.WARN)
+        return
+    end
+    local slug = (t.description or ""):lower():gsub("[^%w]+", "-"):sub(1, 40):gsub("^%-+", ""):gsub("%-+$", "")
+    local name = t.twissue .. (slug ~= "" and "-" .. slug or "")
+    local choice = vim.fn.confirm(
+        ('tw-todo: this will create and checkout branch "%s". Continue?'):format(name),
+        "&Yes\n&No",
+        2
+    )
+    if choice ~= 1 then
+        return
+    end
+    local task = require("tw-todo.task")
+    local root = task.project_root(buf)
+    gh(root, { "issue", "develop", tostring(t.twissue), "--name", name, "--checkout" }, function()
+        vim.notify(("tw-todo: checked out branch %s (issue #%d)"):format(name, t.twissue), vim.log.levels.INFO)
+        if options().develop.start_task and t.uuid then
+            task.start(t.uuid, function()
+                require("tw-todo.virtual").refresh(buf)
+            end)
+        end
+    end)
+end
+
+--- Develop the comment block under the cursor.
+function M.develop_at_cursor()
+    local buf = vim.api.nvim_get_current_buf()
+    local hash = require("tw-todo.scan").at_cursor(buf)
+    if not hash then
+        vim.notify("tw-todo: no tracked comment under cursor", vim.log.levels.WARN)
+        return
+    end
+    require("tw-todo.task").export({ "twhash:" .. hash }, function(tasks)
+        if not tasks[1] then
+            vim.notify("tw-todo: no task found for " .. hash, vim.log.levels.WARN)
+            return
+        end
+        M.develop(tasks[1], buf)
+    end)
+end
+
 ---@param root string
 ---@param issue integer
 function M.reopen(root, issue)

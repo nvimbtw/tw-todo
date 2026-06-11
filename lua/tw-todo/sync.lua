@@ -10,6 +10,50 @@ local M = {}
 local task = require("tw-todo.task")
 local scan_lines = require("tw-todo.scan").lines
 
+--- Difference between a comment's due:/tags: lines and the task. The comment
+--- wins: a missing due line clears the date; a tags line (even empty) is the
+--- full set of user tags. A comment without a tags line expresses no opinion,
+--- so tags set via the CLI on old-format comments survive.
+---@param info table scan entry
+---@param t table exported task
+---@return { due?: string|false, add: string[], remove: string[] }|nil
+local function meta_diff(info, t)
+    local changes = { add = {}, remove = {} }
+    local dirty = false
+    local task_due = t.due and require("tw-todo.util").local_date(t.due) or nil
+    if info.due ~= task_due then
+        -- fuzzy strings ("friday") mismatch too; the modify resolves them and
+        -- write_meta then rewrites the comment with the canonical date
+        changes.due = info.due or false
+        dirty = true
+    end
+    if info.tags then
+        local want, have = {}, {}
+        for _, tag in ipairs(info.tags) do
+            want[tag] = true
+        end
+        local keyword_tag = info.keyword:lower()
+        for _, tag in ipairs(t.tags or {}) do
+            if tag ~= keyword_tag then
+                have[tag] = true
+            end
+        end
+        for tag in pairs(want) do
+            if not have[tag] then
+                table.insert(changes.add, tag)
+                dirty = true
+            end
+        end
+        for tag in pairs(have) do
+            if not want[tag] then
+                table.insert(changes.remove, tag)
+                dirty = true
+            end
+        end
+    end
+    return dirty and changes or nil
+end
+
 --- Reconcile one file's comments against the project's tasks.
 ---@param root string project root (for GitHub issue mirroring)
 ---@param file string path relative to the project root
@@ -19,7 +63,7 @@ local scan_lines = require("tw-todo.scan").lines
 local function reconcile(root, file, found, tasks, buf)
     local gh_enabled = require("tw-todo.config").options.github.enabled
     local github = gh_enabled and require("tw-todo.github") or nil
-    local counts = { completed = 0, reactivated = 0, recreated = 0, moved = 0 }
+    local counts = { completed = 0, reactivated = 0, recreated = 0, moved = 0, updated = 0 }
     local by_hash = {}
     for _, t in ipairs(tasks) do
         if t.twhash then
@@ -43,12 +87,21 @@ local function reconcile(root, file, found, tasks, buf)
         local t = by_hash[hash]
         if not t then
             if info.description then
+                -- the comment's due:/tags: lines restore those attributes
+                local extra = {}
+                if info.due then
+                    table.insert(extra, "due:" .. info.due)
+                end
+                for _, tag in ipairs(info.tags or {}) do
+                    table.insert(extra, "+" .. tag)
+                end
                 local spec = {
                     description = info.description,
                     hash = hash,
                     keyword = info.keyword,
                     buf = buf,
                     file = file,
+                    extra = extra,
                 }
                 task.add(spec, github and function()
                     github.create(spec)
@@ -64,6 +117,26 @@ local function reconcile(root, file, found, tasks, buf)
         elseif t.twfile ~= file then
             task.set_file(t.uuid, file)
             counts.moved = counts.moved + 1
+        else
+            local changes = meta_diff(info, t)
+            if changes then
+                -- only rewrite comments in a live buffer for this file, never
+                -- files read from disk during a project sync
+                local live = buf
+                    and vim.api.nvim_buf_is_valid(buf)
+                    and task.buf_relpath(buf) == file
+                task.set_meta(t.uuid, changes, live and function()
+                    task.export({ "twhash:" .. hash }, function(ts)
+                        if ts[1] then
+                            require("tw-todo.comment").write_meta(buf, hash, ts[1])
+                        end
+                    end)
+                end or nil)
+                if github and t.twissue and (#changes.add > 0 or #changes.remove > 0) then
+                    github.edit_labels(root, t.twissue, changes.add, changes.remove)
+                end
+                counts.updated = counts.updated + 1
+            end
         end
     end
 
@@ -110,7 +183,7 @@ function M.sync_project()
                 files[t.twfile] = true
             end
         end
-        local totals = { completed = 0, reactivated = 0, recreated = 0, moved = 0 }
+        local totals = { completed = 0, reactivated = 0, recreated = 0, moved = 0, updated = 0 }
         for file in pairs(files) do
             local ok, file_lines = pcall(vim.fn.readfile, vim.fs.joinpath(root, file))
             local found = ok and scan_lines(file_lines) or {}

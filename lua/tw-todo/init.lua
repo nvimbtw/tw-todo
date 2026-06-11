@@ -15,6 +15,17 @@ function M.setup(opts)
         end, { desc = "tw-todo: insert FIX" })
     end
 
+    if config.keymaps.hover then
+        vim.keymap.set("n", config.keymaps.hover, function()
+            require("tw-todo.hover").show()
+        end, { desc = "tw-todo: task details" })
+    end
+    if config.keymaps.develop and config.github.enabled then
+        vim.keymap.set("n", config.keymaps.develop, function()
+            require("tw-todo.github").develop_at_cursor()
+        end, { desc = "tw-todo: develop branch for issue" })
+    end
+
     if config.keymaps.list then
         vim.keymap.set("n", config.keymaps.list, function()
             require("tw-todo.picker").open()

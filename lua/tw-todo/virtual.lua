@@ -1,4 +1,6 @@
--- INFO: Inline task status next to hash lines, via extmark virtual text
+-- INFO: Inline task status next to hash lines, via extmark virtual text.
+-- Deliberately minimal: due dates and tags live in the comment itself, the
+-- rest in the hover float; this only encodes severity.
 
 local M = {}
 
@@ -6,25 +8,9 @@ local ns = vim.api.nvim_create_namespace("tw-todo")
 
 vim.api.nvim_set_hl(0, "TwTodoPending", { link = "DiagnosticInfo", default = true })
 vim.api.nvim_set_hl(0, "TwTodoDue", { link = "DiagnosticWarn", default = true })
+vim.api.nvim_set_hl(0, "TwTodoOverdue", { link = "DiagnosticError", default = true })
 vim.api.nvim_set_hl(0, "TwTodoActive", { link = "DiagnosticOk", default = true })
 vim.api.nvim_set_hl(0, "TwTodoUntracked", { link = "Comment", default = true })
-
---- taskwarrior timestamps are UTC ("20260630T220000Z"); render the local date.
----@param ts string
----@return string
-local function local_date(ts)
-    local y, m, d, H, Mi, S = ts:match("^(%d%d%d%d)(%d%d)(%d%d)T(%d%d)(%d%d)(%d%d)Z$")
-    if not y then
-        return ts
-    end
-    -- os.time reads the fields as local time; correct by comparing against the
-    -- same instant's UTC field set (isdst left to libc, or DST is off by 1h)
-    local guess = os.time({ year = y, month = m, day = d, hour = H, min = Mi, sec = S })
-    local utc_fields = os.date("!*t", guess) --[[@as osdate]]
-    utc_fields.isdst = nil
-    local offset = os.difftime(guess, os.time(utc_fields))
-    return os.date("%Y-%m-%d", guess + offset) --[[@as string]]
-end
 
 ---@param t table|nil exported task for the hash, nil if none exists
 ---@return [string, string][] virt_text chunks
@@ -37,12 +23,20 @@ local function default_format(t)
     end
     local chunks = {}
     if t.start then
-        table.insert(chunks, { "▶ tracking ", "TwTodoActive" })
+        table.insert(chunks, { "▶ ", "TwTodoActive" })
     end
-    table.insert(chunks, { ("● %.1f"):format(t.urgency or 0), "TwTodoPending" })
+    local hl = "TwTodoPending"
     if t.due then
-        table.insert(chunks, { " due " .. local_date(t.due), "TwTodoDue" })
+        local epoch = require("tw-todo.util").utc_epoch(t.due)
+        local days = epoch and (epoch - os.time()) / 86400
+        local soon = require("tw-todo.config").options.virtual_text.soon_days or 3
+        if days and days < 0 then
+            hl = "TwTodoOverdue"
+        elseif days and days <= soon then
+            hl = "TwTodoDue"
+        end
     end
+    table.insert(chunks, { ("● %.1f"):format(t.urgency or 0), hl })
     return chunks
 end
 
