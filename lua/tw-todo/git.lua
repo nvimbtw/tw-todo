@@ -107,7 +107,10 @@ function M.merge_back(root, t, co_completed)
                             )
                         end
                         if options().delete_branch then
-                            M.run(root, { "branch", "-d", t.twbranch }, finish)
+                            -- -D, not -d: the branch tracks the remote stub gh
+                            -- created and is "ahead" of it (we never push), so
+                            -- git refuses -d even though we just merged it
+                            M.run(root, { "branch", "-D", t.twbranch }, finish)
                         else
                             finish()
                         end
