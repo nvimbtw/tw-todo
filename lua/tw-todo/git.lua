@@ -109,8 +109,17 @@ function M.merge_back(root, t, co_completed)
                         if options().delete_branch then
                             -- -D, not -d: the branch tracks the remote stub gh
                             -- created and is "ahead" of it (we never push), so
-                            -- git refuses -d even though we just merged it
-                            M.run(root, { "branch", "-D", t.twbranch }, finish)
+                            -- git refuses -d even though we just merged it.
+                            -- The merge already happened, so finish (clear the
+                            -- task's twbranch/twbase) even if deletion fails.
+                            M.run(root, { "branch", "-D", t.twbranch }, finish, function(out)
+                                vim.notify(
+                                    ("tw-todo: could not delete branch %s: %s")
+                                        :format(t.twbranch, vim.trim(out.stderr or "")),
+                                    vim.log.levels.WARN
+                                )
+                                finish()
+                            end)
                         else
                             finish()
                         end
