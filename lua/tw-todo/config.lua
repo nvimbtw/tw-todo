@@ -27,8 +27,9 @@ M.defaults = {
     },
     merge = {
         enabled = true, -- offer merging a develop branch back into its base when its task completes
+        push = true, -- push the base after merging and delete the remote develop branch
         message = "close #%d: %s", -- commit message for the comment-removal commit (issue, description)
-        delete_branch = true, -- delete the local develop branch after merging (the remote is never touched)
+        delete_branch = true, -- delete the develop branch after merging (with push: local and remote; without: local only)
     },
     github = {
         enabled = false, -- mirror comments as GitHub issues via the gh CLI (push-only)

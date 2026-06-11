@@ -51,8 +51,9 @@ require("tw-todo").setup({
     },
     merge = {
         enabled = true, -- offer merging a develop branch back into its base when its task completes
+        push = true, -- push the base after merging and delete the remote develop branch
         message = "close #%d: %s", -- commit message for the comment-removal commit (issue, description)
-        delete_branch = true, -- delete the local develop branch after merging (the remote is never touched)
+        delete_branch = true, -- delete the develop branch after merging (with push: local and remote; without: local only)
     },
     github = {
         enabled = false, -- mirror comments as GitHub issues via the gh CLI
@@ -180,14 +181,21 @@ back:
 
 1. the comment-removal is committed — only the comment's file; if anything
    else is uncommitted the flow aborts with a notify instead of sweeping it in
-   (`merge.message`, default `close #N: <description>`, so the push will also
-   close the issue server-side)
+   (`merge.message`, default `close #N: <description>`, so the push also
+   closes the issue server-side)
 2. `git switch <base>` + `git merge --no-ff <branch>` (conflicts are left to
    you to resolve normally)
-3. the local branch is deleted (`merge.delete_branch`); the remote linked
-   branch stays — deleting it would require a push, and the plugin never
-   pushes
-4. `twbranch`/`twbase` are cleared, marking the task merged
+3. with `merge.push = true` (default) the merged base is pushed
+4. the develop branch is deleted (`merge.delete_branch`) — locally and, when
+   pushing, on the remote too, so finished issue branches don't pile up on
+   GitHub
+5. `twbranch`/`twbase` are cleared, marking the task merged
+
+A failed push (offline, auth) only warns: the merge is already done locally,
+the remote branch is kept, and you push manually later. Pushes happen only
+inside this confirm-gated flow, never silently; `merge.push = false` returns
+to commit-only behavior (remote branches then have to be cleaned up by hand:
+`git push origin --delete <branch>`).
 
 When several comments are removed in one save (agents do this), the commit
 message credits all of them (`closes #N: …` body lines) and at most one merge
@@ -213,4 +221,4 @@ tree). Disable the whole behavior with `merge.enabled = false`.
 - [x] Due/tags as comment lines, two-way synced to taskwarrior and issue labels
 - [x] Hover float with full task details
 - [x] `gh issue develop` branches from a comment (confirmed, checkout, `task start`)
-- [x] Auto merge-back: task completion commits the removal and merges the develop branch into its recorded base (commit-only, no push)
+- [x] Auto merge-back: task completion commits the removal, merges the develop branch into its recorded base, pushes, and deletes the branch locally and remotely

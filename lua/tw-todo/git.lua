@@ -1,6 +1,6 @@
--- INFO: Local git operations: develop-branch plumbing and merge-back of a
--- finished develop branch into its recorded base. Commit-only: nothing here
--- ever pushes.
+-- INFO: Git operations: develop-branch plumbing and merge-back of a finished
+-- develop branch into its recorded base. Pushes happen only inside the
+-- confirm-gated merge-back (merge.push), never silently.
 
 local M = {}
 
@@ -79,7 +79,11 @@ function M.merge_back(root, t, co_completed)
             return
         end
         local choice = vim.fn.confirm(
-            ('tw-todo: task done — merge "%s" into "%s"?'):format(t.twbranch, t.twbase),
+            ('tw-todo: task done — merge "%s" into "%s"%s?'):format(
+                t.twbranch,
+                t.twbase,
+                options().push and " and push" or ""
+            ),
             "&Yes\n&No",
             2
         )
@@ -98,31 +102,68 @@ function M.merge_back(root, t, co_completed)
             local function switch_and_merge()
                 M.run(root, { "switch", t.twbase }, function()
                     M.run(root, { "merge", "--no-ff", "--no-edit", t.twbranch }, function()
-                        local function finish()
+                        -- from here every step is cleanup: the merge already
+                        -- happened, so failures warn and the chain continues —
+                        -- the task's twbranch/twbase must always get cleared
+                        local function finish(suffix)
                             require("tw-todo.task").set_branch(t.uuid, nil, nil)
                             vim.cmd("checktime")
                             vim.notify(
-                                ("tw-todo: merged %s into %s"):format(t.twbranch, t.twbase),
+                                ("tw-todo: merged %s into %s%s"):format(t.twbranch, t.twbase, suffix or ""),
                                 vim.log.levels.INFO
                             )
                         end
-                        if options().delete_branch then
+                        local function delete_local(next_step)
+                            if not options().delete_branch then
+                                next_step()
+                                return
+                            end
                             -- -D, not -d: the branch tracks the remote stub gh
-                            -- created and is "ahead" of it (we never push), so
-                            -- git refuses -d even though we just merged it.
-                            -- The merge already happened, so finish (clear the
-                            -- task's twbranch/twbase) even if deletion fails.
-                            M.run(root, { "branch", "-D", t.twbranch }, finish, function(out)
+                            -- created and may be "ahead" of it, so git refuses
+                            -- -d even though we just merged it
+                            M.run(root, { "branch", "-D", t.twbranch }, next_step, function(out)
                                 vim.notify(
                                     ("tw-todo: could not delete branch %s: %s")
                                         :format(t.twbranch, vim.trim(out.stderr or "")),
                                     vim.log.levels.WARN
                                 )
-                                finish()
+                                next_step()
                             end)
-                        else
-                            finish()
                         end
+                        if not options().push then
+                            delete_local(finish)
+                            return
+                        end
+                        M.run(root, { "push", "origin", t.twbase }, function()
+                            delete_local(function()
+                                if not options().delete_branch then
+                                    finish(", pushed")
+                                    return
+                                end
+                                M.run(root, { "push", "origin", "--delete", t.twbranch }, function()
+                                    finish(", pushed, branch deleted")
+                                end, function(out)
+                                    vim.notify(
+                                        ("tw-todo: could not delete remote branch %s: %s")
+                                            :format(t.twbranch, vim.trim(out.stderr or "")),
+                                        vim.log.levels.WARN
+                                    )
+                                    finish(", pushed")
+                                end)
+                            end)
+                        end, function(out)
+                            -- offline/auth/non-ff: local state is fine, the
+                            -- remote just didn't get updated — keep the remote
+                            -- branch (we can't delete it anyway) and move on
+                            vim.notify(
+                                ("tw-todo: push of %s failed (%s) — push manually; remote branch %s kept")
+                                    :format(t.twbase, vim.trim(out.stderr or ""), t.twbranch),
+                                vim.log.levels.WARN
+                            )
+                            delete_local(function()
+                                finish(" (not pushed)")
+                            end)
+                        end)
                     end)
                 end)
             end
