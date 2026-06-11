@@ -1,7 +1,5 @@
 local M = {}
 
--- This is a change
-
 function M.setup(opts)
     local config = require("tw-todo.config").apply(opts)
     local comment = require("tw-todo.comment")
