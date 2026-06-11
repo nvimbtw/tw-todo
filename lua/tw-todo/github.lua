@@ -163,10 +163,19 @@ function M.edit_labels(root, issue, add, remove)
     end)
 end
 
+local function git(root, args, on_done)
+    require("tw-todo.git").run(root, args, on_done)
+end
+
 --- Create and check out the issue-linked branch for a task, after an explicit
 --- confirmation. The branch name is computed locally (gh's `<issue>-<slug>`
---- convention) so the prompt shows exactly what will be created. No commits
---- are ever pushed.
+--- convention) so the prompt shows exactly what will be created.
+---
+--- gh registers the linked branch remotely (based on the current branch, not
+--- the repo default), but the local switch is `git switch -C` at HEAD: unlike
+--- gh's --checkout it carries uncommitted changes along — inserting a comment
+--- always dirties the tree, so a plain checkout would refuse with "commit or
+--- stash your changes". No commits are ever pushed.
 ---@param t table exported task (needs twissue, description, uuid)
 ---@param buf? integer
 function M.develop(t, buf)
@@ -186,13 +195,35 @@ function M.develop(t, buf)
     end
     local task = require("tw-todo.task")
     local root = task.project_root(buf)
-    gh(root, { "issue", "develop", tostring(t.twissue), "--name", name, "--checkout" }, function()
-        vim.notify(("tw-todo: checked out branch %s (issue #%d)"):format(name, t.twissue), vim.log.levels.INFO)
-        if options().develop.start_task and t.uuid then
-            task.start(t.uuid, function()
-                require("tw-todo.virtual").refresh(buf)
-            end)
+    git(root, { "branch", "--show-current" }, function(out)
+        local base = vim.trim(out.stdout or "")
+        local args = { "issue", "develop", tostring(t.twissue), "--name", name }
+        if base ~= "" then
+            vim.list_extend(args, { "--base", base })
         end
+        gh(root, args, function()
+            git(root, { "switch", "-C", name }, function()
+                -- track the remote branch gh created, so a later plain
+                -- `git push` does the right thing (explicit refspec: a bare
+                -- `fetch origin <name>` only updates FETCH_HEAD)
+                git(root, { "fetch", "origin", ("+refs/heads/%s:refs/remotes/origin/%s"):format(name, name) }, function()
+                    git(root, { "branch", "-u", "origin/" .. name, name })
+                end)
+                -- remember the branch and its base for the merge-back
+                if t.uuid then
+                    task.set_branch(t.uuid, name, base)
+                end
+                vim.notify(
+                    ("tw-todo: on branch %s (issue #%d)"):format(name, t.twissue),
+                    vim.log.levels.INFO
+                )
+                if options().develop.start_task and t.uuid then
+                    task.start(t.uuid, function()
+                        require("tw-todo.virtual").refresh(buf)
+                    end)
+                end
+            end)
+        end)
     end)
 end
 

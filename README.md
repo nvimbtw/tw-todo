@@ -49,6 +49,11 @@ require("tw-todo").setup({
         soon_days = 3, -- due within this many days renders as a warning
         format = nil, -- fun(task|nil): chunks — override the rendering
     },
+    merge = {
+        enabled = true, -- offer merging a develop branch back into its base when its task completes
+        message = "close #%d: %s", -- commit message for the comment-removal commit (issue, description)
+        delete_branch = true, -- delete the local develop branch after merging (the remote is never touched)
+    },
     github = {
         enabled = false, -- mirror comments as GitHub issues via the gh CLI
         command = "gh",
@@ -154,17 +159,46 @@ missing from the repo).
 ### Develop branches
 
 `:TwDevelop` (default `<leader>tb`) on a comment block creates the
-issue-linked branch via `gh issue develop --checkout` and switches to it,
-after a confirmation prompt showing the exact branch name
-(`<issue>-<description-slug>`, gh's own convention). With
-`develop.start_task = true` the taskwarrior task is `start`ed so the virtual
-text shows `▶`. Nothing is ever committed or pushed by the plugin — gh only
-registers the linked branch ref.
+issue-linked branch via `gh issue develop --base <current branch>`, after a
+confirmation prompt showing the exact branch name
+(`<issue>-<description-slug>`, gh's own convention). The local switch is
+`git switch -C` at your current HEAD — unlike gh's own `--checkout` it works
+with a dirty worktree (inserting a comment always leaves one) and your
+uncommitted changes come along to the new branch. The remote branch gh
+registered is set as upstream so a later plain `git push` does the right
+thing. With `develop.start_task = true` the taskwarrior task is `start`ed so
+the virtual text shows `▶`. The branch and the branch it was created from are
+recorded on the task (`twbranch`/`twbase` UDAs) — that is how the merge-back
+knows its target.
+
+### Merge-back
+
+Deleting the comment block and saving is already how a task completes; when
+the completed task has a recorded develop branch and you are on it, the work
+is done by definition and the plugin offers (confirm prompt) to merge it
+back:
+
+1. the comment-removal is committed — only the comment's file; if anything
+   else is uncommitted the flow aborts with a notify instead of sweeping it in
+   (`merge.message`, default `close #N: <description>`, so the push will also
+   close the issue server-side)
+2. `git switch <base>` + `git merge --no-ff <branch>` (conflicts are left to
+   you to resolve normally)
+3. the local branch is deleted (`merge.delete_branch`); the remote linked
+   branch stays — deleting it would require a push, and the plugin never
+   pushes
+4. `twbranch`/`twbase` are cleared, marking the task merged
+
+When several comments are removed in one save (agents do this), the commit
+message credits all of them (`closes #N: …` body lines) and at most one merge
+prompt fires — branches finished while you were elsewhere are listed by
+`:TwMerge`, the deferred/retry path (declined prompt, wrong branch, dirty
+tree). Disable the whole behavior with `merge.enabled = false`.
 
 ## Commands
 
-`:TwTodo`, `:TwFix`, `:TwList`, `:TwSync`, `:TwHover`, `:TwDevelop` — all work
-without `setup()`.
+`:TwTodo`, `:TwFix`, `:TwList`, `:TwSync`, `:TwHover`, `:TwDevelop`,
+`:TwMerge` — all work without `setup()`.
 
 ## Roadmap
 
@@ -179,4 +213,4 @@ without `setup()`.
 - [x] Due/tags as comment lines, two-way synced to taskwarrior and issue labels
 - [x] Hover float with full task details
 - [x] `gh issue develop` branches from a comment (confirmed, checkout, `task start`)
-- [ ] Explicit complete action (`:TwDone`) + optional auto-commit (commit-only, no push)
+- [x] Auto merge-back: task completion commits the removal and merges the develop branch into its recorded base (commit-only, no push)

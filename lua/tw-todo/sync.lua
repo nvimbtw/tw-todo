@@ -72,12 +72,14 @@ local function reconcile(root, file, found, tasks, buf)
     end
 
     -- comment gone from the file it was created in -> done
+    local completed = {}
     for _, t in ipairs(tasks) do
         if t.twfile == file and t.status == "pending" and not found[t.twhash] then
             task.done(t.uuid)
             if github and t.twissue then
                 github.close(root, t.twissue)
             end
+            table.insert(completed, t)
             counts.completed = counts.completed + 1
         end
     end
@@ -137,6 +139,16 @@ local function reconcile(root, file, found, tasks, buf)
                 end
                 counts.updated = counts.updated + 1
             end
+        end
+    end
+
+    -- a completed task with a recorded develop branch means the work is done:
+    -- offer the merge back into its base. Only from live editing, never from
+    -- a bulk project scan.
+    if #completed > 0 and require("tw-todo.config").options.merge.enabled then
+        local live = buf and vim.api.nvim_buf_is_valid(buf) and task.buf_relpath(buf) == file
+        if live then
+            require("tw-todo.git").offer_merge(root, completed)
         end
     end
 

@@ -25,6 +25,11 @@ M.defaults = {
         soon_days = 3, -- due within this many days renders as TwTodoDue (warn)
         format = nil, -- fun(task: table|nil): [string, string][] -- override the chunks
     },
+    merge = {
+        enabled = true, -- offer merging a develop branch back into its base when its task completes
+        message = "close #%d: %s", -- commit message for the comment-removal commit (issue, description)
+        delete_branch = true, -- delete the local develop branch after merging (the remote is never touched)
+    },
     github = {
         enabled = false, -- mirror comments as GitHub issues via the gh CLI (push-only)
         command = "gh",

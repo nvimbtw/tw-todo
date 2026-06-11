@@ -19,6 +19,10 @@ local overrides = {
     "rc.uda.twfile.label=tw-todo file",
     "rc.uda.twissue.type=numeric",
     "rc.uda.twissue.label=tw-todo issue",
+    "rc.uda.twbranch.type=string",
+    "rc.uda.twbranch.label=tw-todo branch",
+    "rc.uda.twbase.type=string",
+    "rc.uda.twbase.label=tw-todo base branch",
 }
 
 -- Taskwarrior 3's sqlite backend fails fast when two `task` processes touch
@@ -185,6 +189,16 @@ end
 ---@param on_done? fun(out: vim.SystemCompleted)
 function M.start(uuid, on_done)
     run({ uuid, "start" }, on_done)
+end
+
+--- Record (or clear, with nils) the develop branch created for a task and
+--- the branch it was based on — the merge-back target.
+---@param uuid string
+---@param branch string|nil
+---@param base string|nil
+---@param on_done? fun(out: vim.SystemCompleted)
+function M.set_branch(uuid, branch, base, on_done)
+    run({ uuid, "modify", "twbranch:" .. (branch or ""), "twbase:" .. (base or "") }, on_done)
 end
 
 --- Store the GitHub issue number mirrored from a comment.

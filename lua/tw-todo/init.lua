@@ -1,3 +1,5 @@
+-- TODO: Create auto commits after closing an issue
+-- tw:   5e9c534
 local M = {}
 
 function M.setup(opts)
