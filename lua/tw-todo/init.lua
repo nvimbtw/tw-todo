@@ -1,6 +1,6 @@
 local M = {}
 
--- Hello there bro...
+-- hello
 
 function M.setup(opts)
     local config = require("tw-todo.config").apply(opts)
